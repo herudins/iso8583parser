@@ -8,6 +8,20 @@ import (
 	"sync"
 )
 
+type bitmapTypeData int
+
+const (
+	bitmapTypePrimary bitmapTypeData = iota
+	bitmapTypeSecondary
+	bitmapTypeTertiary
+)
+
+const (
+	secondaryFieldStart = 65
+	tertiaryFieldStart  = 129
+	maxField            = 192
+)
+
 // ElementsData object
 type ElementsData struct {
 	mu       sync.RWMutex
@@ -21,8 +35,7 @@ func (e *ElementsData) setElement(field int, data string) {
 	e.mu.Unlock()
 }
 
-// getElement retrieving element data based on a specific field
-// from the elements map
+// getElement retrieving element data based on a specific field from the elements map
 func (e *ElementsData) getElement(field int) string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -40,6 +53,7 @@ func (e *ElementsData) getElements() map[int]string {
 
 // Iso8583Data object
 type Iso8583Data struct {
+	bitmapType bitmapTypeData
 	Spec       SpecData
 	Mti        MtiData
 	Bitmap     []int
@@ -48,24 +62,22 @@ type Iso8583Data struct {
 }
 
 // Create a new Iso8583Data object from a yaml specification file
-// and can set or use option secondary bitmap to true or false
-func New(filename string, secondaryBitmap bool) (iso *Iso8583Data, err error) {
+func New(filename string) (iso *Iso8583Data, err error) {
 	spec, err := SpecFromFile(filename)
 	if err != nil {
 		return iso, err
 	}
 
-	return createIsoObject(spec, secondaryBitmap)
+	return createIsoObject(spec)
 }
 
 // Create a new Iso8583Data object from a predefined data specification
-// and can set or use option secondary bitmap to true or false
-func NewFromSpec(spec SpecData, secondaryBitmap bool) (iso *Iso8583Data, err error) {
-	return createIsoObject(spec, secondaryBitmap)
+func NewFromSpec(spec SpecData) (iso *Iso8583Data, err error) {
+	return createIsoObject(spec)
 }
 
 // Private function that create a new Iso8583Data object from a predefined data specification.
-func createIsoObject(spec SpecData, secondaryBitmap bool) (iso *Iso8583Data, err error) {
+func createIsoObject(spec SpecData) (iso *Iso8583Data, err error) {
 	if len(spec.Fields) == 0 {
 		return iso, ErrEmptySpec
 	}
@@ -75,20 +87,24 @@ func createIsoObject(spec SpecData, secondaryBitmap bool) (iso *Iso8583Data, err
 	}
 
 	iso = &Iso8583Data{
+		bitmapType: bitmapTypePrimary,
 		Spec:       spec,
 		Mti:        MtiData{},
-		Bitmap:     make([]int, 64),
+		Bitmap:     make([]int, 192),
 		BitmapSize: 64,
 		Elements:   ElementsData{elements: make(map[int]string)},
 	}
 
-	if secondaryBitmap {
-		iso.Bitmap = make([]int, 128)
-		iso.BitmapSize = 128
-		iso.Bitmap[0] = 1
-	}
-
 	return iso, nil
+}
+
+func (iso *Iso8583Data) configureBitmap(bType bitmapTypeData) {
+	iso.bitmapType = bType
+	if bType == bitmapTypeTertiary {
+		iso.BitmapSize = maxField
+	} else if bType == bitmapTypeSecondary {
+		iso.BitmapSize = tertiaryFieldStart - 1
+	}
 }
 
 // Set MTI data for the iso8583 message
@@ -102,10 +118,16 @@ func (iso *Iso8583Data) AddMTI(mti string) error {
 }
 
 // Define specific field data by field number.
-// An error may occur if the field number entered is less than 2 or exceeds the capacity of the bitmap.
+// An error may occur if the field number entered is less than 2 or more than maxField (192)
 func (iso *Iso8583Data) SetField(field int, data string) error {
-	if field < 2 || field > len(iso.Bitmap) {
-		return fmt.Errorf("expected field to be between %d and %d found %d instead", 2, len(iso.Bitmap), field)
+	if field < 2 || field > maxField {
+		return fmt.Errorf("expected field to be between %d and %d found %d instead", 2, maxField, field)
+	}
+
+	if field >= tertiaryFieldStart && iso.bitmapType != bitmapTypeTertiary {
+		iso.configureBitmap(bitmapTypeTertiary)
+	} else if field >= secondaryFieldStart && iso.bitmapType == bitmapTypePrimary {
+		iso.configureBitmap(bitmapTypeSecondary)
 	}
 
 	iso.Bitmap[field-1] = 1
@@ -114,10 +136,10 @@ func (iso *Iso8583Data) SetField(field int, data string) error {
 }
 
 // Retrieves specific field data by field number.
-// An error may occur if the field number entered is less than 2 or exceeds the capacity of the bitmap.
+// An error may occur if the field number entered is less than 2 or more than maxField (192)
 func (iso *Iso8583Data) GetField(field int) (string, error) {
-	if field < 2 || field > len(iso.Bitmap) {
-		return "", fmt.Errorf("expected field to be between %d and %d found %d instead", 2, len(iso.Bitmap), field)
+	if field < 2 || field > maxField {
+		return "", fmt.Errorf("expected field to be between %d and %d found %d instead", 2, maxField, field)
 	}
 
 	return iso.Elements.getElement(field), nil
@@ -158,11 +180,28 @@ func (iso *Iso8583Data) MarshalString() (string, error) {
 }
 
 func (iso *Iso8583Data) marshal() ([]byte, error) {
+	if iso.bitmapType == bitmapTypePrimary {
+		bitNew := make([]int, 64)
+		_ = copy(bitNew, iso.Bitmap[0:64])
+
+		iso.Bitmap = bitNew
+	} else if iso.bitmapType == bitmapTypeSecondary {
+		bitNew := make([]int, 128)
+		_ = copy(bitNew, iso.Bitmap[0:128])
+
+		iso.Bitmap = bitNew
+		iso.Bitmap[0] = 1
+	} else if iso.bitmapType == bitmapTypeTertiary {
+		bitNew := make([]int, maxField)
+		_ = copy(bitNew, iso.Bitmap[0:maxField])
+
+		iso.Bitmap = bitNew
+		iso.Bitmap[0] = 1
+		iso.Bitmap[64] = 1
+	}
+
 	buf := make([]byte, 0, 512)
 	buf = append(buf, []byte(iso.Mti.Get())...)
-
-	bitmap := iso.Bitmap
-	elementsSpec := iso.Spec
 
 	bitmapString, err := BitsIntArrayToHex(iso.Bitmap)
 	if err != nil {
@@ -170,15 +209,15 @@ func (iso *Iso8583Data) marshal() ([]byte, error) {
 	}
 	buf = append(buf, []byte(bitmapString)...)
 
-	//Loop from Field 2 (bitmap index 1),
-	// because Field 0 (MTI) and Field 1 (bitmap index 0) is bitmap auto-generated
-	for index := 1; index < iso.BitmapSize; index++ {
-		if bitmap[index] == 1 {
+	//Loop all the added elements
+	for i := 1; i < iso.BitmapSize; i++ {
+		if iso.Bitmap[i] == 1 {
+			field := i + 1
+
 			var (
-				field     = index + 1
-				fieldSpec = elementsSpec.Fields[field]
-				data      = iso.Elements.getElement(field)
+				fieldSpec = iso.Spec.Fields[field]
 				maxLen    = fieldSpec.MaxLen
+				data      = iso.Elements.getElement(field)
 				dataLen   = len(data)
 			)
 
@@ -247,7 +286,26 @@ func (iso *Iso8583Data) Unmarshal(bytesIso []byte) error {
 		}
 
 		iso.Bitmap[0] = 1
-		bytesIso = bytesIso[36:]
+		iso.bitmapType = bitmapTypeSecondary
+
+		//Cek tertiary bitmap
+		if bitmap[8]&0x80 != 0 {
+			bitmapSize = maxField
+			bitmap = append(bitmap, make([]byte, 8)...)
+			if len(bytesIso) < 36 {
+				return ErrDataToShortSecondaryBitmap
+			}
+
+			if _, err := hex.Decode(bitmap[16:], bytesIso[36:52]); err != nil {
+				return err
+			}
+
+			iso.Bitmap[64] = 1
+			iso.bitmapType = bitmapTypeTertiary
+			bytesIso = bytesIso[52:]
+		} else {
+			bytesIso = bytesIso[36:]
+		}
 	} else {
 		bytesIso = bytesIso[20:]
 	}
@@ -317,6 +375,10 @@ func (iso *Iso8583Data) Unmarshal(bytesIso []byte) error {
 		}
 	}
 
+	bitNew := make([]int, bitmapSize)
+	_ = copy(bitNew, iso.Bitmap[0:bitmapSize])
+	iso.Bitmap = bitNew
+
 	return nil
 }
 
@@ -357,6 +419,22 @@ func (iso *Iso8583Data) UnmarshalString(isoMessage string) error {
 
 		iso.Bitmap[0] = 1
 		isoMessage = isoMessage[36:]
+
+		if bitmap[65] == '1' {
+			if len(isoMessage) < 52 {
+				return ErrDataToShortTertiaryBitmap
+			}
+
+			third := isoMessage[36:52]
+			thirdBitmap, err := HexToBitsString(third)
+			if err != nil {
+				return err
+			}
+			bitmap += thirdBitmap
+
+			iso.Bitmap[64] = 1
+			isoMessage = isoMessage[52:]
+		}
 	} else {
 		isoMessage = isoMessage[20:]
 	}
@@ -424,6 +502,10 @@ func (iso *Iso8583Data) UnmarshalString(isoMessage string) error {
 		pos += fieldLen
 	}
 	iso.BitmapSize = len(bitmap)
+
+	bitNew := make([]int, iso.BitmapSize)
+	_ = copy(bitNew, iso.Bitmap[0:iso.BitmapSize])
+	iso.Bitmap = bitNew
 
 	return nil
 }
