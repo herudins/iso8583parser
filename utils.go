@@ -2,6 +2,7 @@ package iso8583parser
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -194,4 +195,17 @@ func BitsIntArrayToHex(bits []int) (string, error) {
 	}
 
 	return string(hex), nil
+}
+
+func GetShortedKeyFields(source map[int]string) []int {
+	ks := make([]int, len(source))
+
+	index := 0
+	for k, _ := range source {
+		ks[index] = k
+		index++
+	}
+
+	sort.Ints(ks)
+	return ks
 }

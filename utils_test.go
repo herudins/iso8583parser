@@ -1,6 +1,7 @@
 package iso8583parser
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -124,4 +125,26 @@ func BenchmarkBitsToHex(b *testing.B) {
 			}
 		}
 	})
+}
+
+func TestGetShortedKeyFields(t *testing.T) {
+	source := map[int]string{
+		3:   "100700",
+		4:   "1500",
+		5:   "5",
+		7:   "0711170215",
+		8:   "8",
+		47:  "147",
+		48:  "12345",
+		100: "123456",
+		103: "1234567890",
+		104: "654321",
+		6:   "6",
+		11:  "23edfr",
+		12:  "202307",
+		13:  "0711",
+	}
+
+	keyShorted := GetShortedKeyFields(source)
+	fmt.Println(keyShorted)
 }
