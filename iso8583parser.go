@@ -165,7 +165,7 @@ func (iso *Iso8583Data) GetAllFields() (allField map[int]string, err error) {
 // Perform ISO8583 data packaging based on fields and data that have been set returning bytes data iso message
 // Errors can occur if the data length in a particular field exceeds the field capacity in the configuration,
 // and if the field type depends on the length of the variable in the configuration
-// and is not part of the type (llvar, lllvar, llllvar),
+// and is not part of the type (llvar, lllvar),
 // and if bitmap is invalid
 func (iso *Iso8583Data) Marshal() ([]byte, error) {
 	return iso.marshal()
@@ -174,7 +174,7 @@ func (iso *Iso8583Data) Marshal() ([]byte, error) {
 // Perform ISO8583 data packaging based on fields and data that have been set returning text of iso message
 // Errors can occur if the data length in a particular field exceeds the field capacity in the configuration,
 // and if the field type depends on the length of the variable in the configuration
-// and is not part of the type (llvar, lllvar, llllvar),
+// and is not part of the type (llvar, lllvar),
 // and if bitmap is invalid
 func (iso *Iso8583Data) MarshalString() (string, error) {
 	bytesData, err := iso.marshal()
@@ -355,18 +355,6 @@ func (iso *Iso8583Data) Unmarshal(bytesIso []byte) error {
 
 				fieldLen = n
 				pos += 3
-			case "llllvar":
-				if pos+3 > len(bytesIso) {
-					return fmt.Errorf("field %d: LLLLVAR prefix too short", i)
-				}
-
-				n, err := strconv.Atoi(string(bytesIso[pos : pos+4]))
-				if err != nil {
-					return fmt.Errorf("field %d: LLLLVAR prefix is not an integer", i)
-				}
-
-				fieldLen = n
-				pos += 4
 			}
 
 			if pos+fieldLen > len(bytesIso) {
@@ -486,18 +474,6 @@ func (iso *Iso8583Data) UnmarshalString(isoMessage string) error {
 
 			fieldLen = n
 			pos += 3
-		case "llllvar":
-			if pos+3 > len(isoMessage) {
-				return fmt.Errorf("field %d: LLLLVAR prefix too short", i)
-			}
-
-			n, err := strconv.Atoi(string(isoMessage[pos : pos+4]))
-			if err != nil {
-				return fmt.Errorf("field %d: LLLLVAR prefix is not an integer", i)
-			}
-
-			fieldLen = n
-			pos += 4
 		}
 
 		if pos+fieldLen > len(isoMessage) {
