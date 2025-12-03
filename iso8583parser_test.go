@@ -41,6 +41,27 @@ func setDataIso(isoParser *Iso8583Data) {
 	isoParser.SetField(104, "654321")
 }
 
+func TestParserFromFile(t *testing.T) {
+	isoParser, err := New("spec1987.yml")
+	assert.Nil(t, err, "Error should be nil")
+	assert.NotNil(t, isoParser, "ISO Parser should not be nil")
+}
+
+func TestParserFileToGoType(t *testing.T) {
+	specData, err := SpecFromFile("spec1987.yml")
+	assert.Nil(t, err, "Error should be nil")
+
+	isoParser, err := NewFromSpec(specData)
+	assert.Nil(t, err, "Error should be nil")
+	assert.NotNil(t, isoParser, "ISO Parser should not be nil")
+}
+
+func TestParserFromGoType(t *testing.T) {
+	isoParser, err := NewFromSpec(SpecData1987)
+	assert.Nil(t, err, "Error should be nil")
+	assert.NotNil(t, isoParser, "ISO Parser should not be nil")
+}
+
 func TestMarshal(t *testing.T) {
 	isoParser, err := New("spec1987.yml")
 	assert.Nil(t, err, "Error should be nil")
@@ -48,7 +69,6 @@ func TestMarshal(t *testing.T) {
 	setDataIso(isoParser)
 	isoMsg, err := isoParser.Marshal()
 	assert.Nil(t, err, "Error should be nil")
-
 	require.Equal(t, bitArray, isoParser.Bitmap, "Expected bit string to be equal")
 	require.Equal(t, msgiso, string(isoMsg), "Expected iso message to be equal")
 }
@@ -58,7 +78,7 @@ func TestMarshalString(t *testing.T) {
 	assert.Nil(t, err, "Error should be nil")
 
 	setDataIso(isoParser)
-	isoMsg, err := isoParser.Marshal()
+	isoMsg, err := isoParser.MarshalString()
 	assert.Nil(t, err, "Error should be nil")
 
 	require.Equal(t, bitArray, isoParser.Bitmap, "Expected bit string to be equal")
@@ -125,43 +145,34 @@ func TestMarshalTertiary(t *testing.T) {
 	require.Equal(t, msgisoTertiary, string(isoMsg), "Expected iso message to be equal")
 }
 
-func BenchmarkMarshal(b *testing.B) {
-	isoParser, err := New("spec1987.yml")
-	if err != nil {
-		b.Fatalf("Failed to initialize parser: %v", err)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		setDataIso(isoParser)
-		_, err := isoParser.Marshal()
-		if err != nil {
-			b.Fatalf("Failed to Marshal: %v", err)
-		}
-	}
-}
-
-func BenchmarkMarshalString(b *testing.B) {
-	isoParser, err := New("spec1987.yml")
-	if err != nil {
-		b.Fatalf("Failed to initialize parser: %v", err)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		setDataIso(isoParser)
-		_, err := isoParser.MarshalString()
-		if err != nil {
-			b.Fatalf("Failed to Marshal: %v", err)
-		}
-	}
-}
-
 func TestUnmarshal(t *testing.T) {
 	isoParser, err := New("spec1987.yml")
 	assert.Nil(t, err, "Error should be nil")
 
 	err = isoParser.Unmarshal([]byte(msgiso))
+	assert.Nil(t, err, "Error should be nil")
+
+	bit3, err := isoParser.GetField(3)
+	assert.Nil(t, err, "Error should be nil")
+
+	bit4, err := isoParser.GetField(4)
+	assert.Nil(t, err, "Error should be nil")
+
+	bit5, err := isoParser.GetField(5)
+	assert.Nil(t, err, "Error should be nil")
+
+	require.Equal(t, bitArray, isoParser.Bitmap, "Expected bit string to be equal")
+	require.Equal(t, "2200", isoParser.Mti.Get(), "Expected MTI to be equal")
+	require.Equal(t, "100700", bit3, "Expected Bit3 to be equal")
+	require.Equal(t, "000000001500", bit4, "Expected Bit4 to be equal")
+	require.Equal(t, "000000000005", bit5, "Expected Bit5 to be equal")
+}
+
+func TestUnmarshalString(t *testing.T) {
+	isoParser, err := New("spec1987.yml")
+	assert.Nil(t, err, "Error should be nil")
+
+	err = isoParser.UnmarshalString(msgiso)
 	assert.Nil(t, err, "Error should be nil")
 
 	bit3, err := isoParser.GetField(3)
@@ -205,55 +216,4 @@ func TestUnmarshalTertiary(t *testing.T) {
 	require.Equal(t, "000000001500", bit4, "Expected Bit4 to be equal")
 	require.Equal(t, "123456", bit100, "Expected Bit100 to be equal")
 	require.Equal(t, "00000005", bit129, "Expected Bit129 to be equal")
-}
-
-func TestUnmarshalString(t *testing.T) {
-	isoParser, err := New("spec1987.yml")
-	assert.Nil(t, err, "Error should be nil")
-
-	err = isoParser.UnmarshalString(msgiso)
-	assert.Nil(t, err, "Error should be nil")
-
-	bit3, err := isoParser.GetField(3)
-	assert.Nil(t, err, "Error should be nil")
-
-	bit4, err := isoParser.GetField(4)
-	assert.Nil(t, err, "Error should be nil")
-
-	bit5, err := isoParser.GetField(5)
-	assert.Nil(t, err, "Error should be nil")
-
-	require.Equal(t, bitArray, isoParser.Bitmap, "Expected bit string to be equal")
-	require.Equal(t, "2200", isoParser.Mti.Get(), "Expected MTI to be equal")
-	require.Equal(t, "100700", bit3, "Expected Bit3 to be equal")
-	require.Equal(t, "000000001500", bit4, "Expected Bit4 to be equal")
-	require.Equal(t, "000000000005", bit5, "Expected Bit5 to be equal")
-}
-
-func BenchmarkUnmarshal(b *testing.B) {
-	isoParser, err := New("spec1987.yml")
-	if err != nil {
-		b.Fatalf("Failed to initialize parser: %v", err)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := isoParser.Unmarshal([]byte(msgiso)); err != nil {
-			b.Fatalf("Failed to Unmarshal: %v", err)
-		}
-	}
-}
-
-func BenchmarkUnmarshalString(b *testing.B) {
-	isoParser, err := New("spec1987.yml")
-	if err != nil {
-		b.Fatalf("Failed to initialize parser: %v", err)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := isoParser.UnmarshalString(msgiso); err != nil {
-			b.Fatalf("Failed to Unmarshal: %v", err)
-		}
-	}
 }
