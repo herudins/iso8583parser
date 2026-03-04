@@ -22,6 +22,11 @@ const (
 	bitmapSizeTertiary  = 192
 )
 
+const (
+	padTypeLeft  = "l"
+	padTypeRight = "r"
+)
+
 // ElementsData object
 type ElementsData struct {
 	mu       sync.RWMutex
@@ -33,6 +38,15 @@ func (e *ElementsData) setElement(field int, data string) {
 	e.mu.Lock()
 	e.elements[field] = data
 	e.mu.Unlock()
+}
+
+// createElement create element data based on a specific option
+func (e *ElementsData) createElement(data string, len int, padType, padValue string) string {
+	if padType == padTypeLeft {
+		return leftPad(data, len, padValue)
+	}
+
+	return rightPad(data, len, padValue)
 }
 
 // getElement retrieving element data based on a specific field from the elements map
@@ -131,6 +145,34 @@ func (iso *Iso8583Data) SetField(field int, data string) error {
 		return fmt.Errorf("expected field to be between %d and %d found %d instead", 2, bitmapSizeTertiary, field)
 	}
 
+	fieldSpec, ok := iso.Spec.Fields[field]
+	if !ok {
+		return fmt.Errorf("no field spec for field %d", field)
+	}
+
+	maxLen := fieldSpec.MaxLen
+	dataLen := len(data)
+
+	if dataLen > maxLen {
+		return fmt.Errorf("failed to set field %d with max length %d but data length %d", field, maxLen, dataLen)
+	}
+
+	if strings.ToLower(fieldSpec.LenType) == "fixed" {
+		if fieldSpec.ContentType == "n" {
+			data = iso.Elements.createElement(data, maxLen, padTypeLeft, "0")
+		} else {
+			data = iso.Elements.createElement(data, maxLen, padTypeRight, " ")
+		}
+	} else {
+		lengthType, err := getVariableLengthFromString(fieldSpec.LenType)
+		if err != nil {
+			return err
+		}
+
+		paddedLength := iso.Elements.createElement(strconv.Itoa(dataLen), lengthType, padTypeLeft, "0")
+		data = paddedLength + data
+	}
+
 	iso.Bitmap[field-1] = 1
 	iso.Elements.setElement(field, data)
 	return nil
@@ -160,6 +202,11 @@ func (iso *Iso8583Data) GetAllFields() (allField map[int]string, err error) {
 	}
 
 	return allField, nil
+}
+
+// Retrieves all field key data in all elements sort by key.
+func (iso *Iso8583Data) GetAllFieldKeySorted() []int {
+	return GetShortedKeyFields(iso.Elements.getElements())
 }
 
 // Perform ISO8583 data packaging based on fields and data that have been set returning bytes data iso message
@@ -214,9 +261,9 @@ func (iso *Iso8583Data) marshal() ([]byte, error) {
 
 		if strings.ToLower(fieldSpec.LenType) == "fixed" {
 			if fieldSpec.ContentType == "n" {
-				data = leftPad(data, maxLen, "0")
+				data = iso.Elements.createElement(data, maxLen, padTypeLeft, "0")
 			} else {
-				data = rightPad(data, maxLen, " ")
+				data = iso.Elements.createElement(data, maxLen, padTypeRight, " ")
 			}
 
 			bufData = append(bufData, data...)
@@ -226,7 +273,7 @@ func (iso *Iso8583Data) marshal() ([]byte, error) {
 				return nil, err
 			}
 
-			paddedLength := leftPad(strconv.Itoa(dataLen), lengthType, "0")
+			paddedLength := iso.Elements.createElement(strconv.Itoa(dataLen), lengthType, padTypeLeft, "0")
 			bufData = append(bufData, paddedLength...)
 			bufData = append(bufData, data...)
 		}

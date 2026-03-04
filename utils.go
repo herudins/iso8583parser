@@ -201,7 +201,7 @@ func GetShortedKeyFields(source map[int]string) []int {
 	ks := make([]int, len(source))
 
 	index := 0
-	for k, _ := range source {
+	for k := range source {
 		ks[index] = k
 		index++
 	}
