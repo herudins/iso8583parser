@@ -163,14 +163,6 @@ func (iso *Iso8583Data) SetField(field int, data string) error {
 		} else {
 			data = iso.Elements.createElement(data, maxLen, padTypeRight, " ")
 		}
-	} else {
-		lengthType, err := getVariableLengthFromString(fieldSpec.LenType)
-		if err != nil {
-			return err
-		}
-
-		paddedLength := iso.Elements.createElement(strconv.Itoa(dataLen), lengthType, padTypeLeft, "0")
-		data = paddedLength + data
 	}
 
 	iso.Bitmap[field-1] = 1
