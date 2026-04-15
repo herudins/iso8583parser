@@ -8,11 +8,11 @@ import (
 
 // Extract the MTI code from ISO8583 message
 func extractMti(str string) (mti MtiData, err error) {
-	if len(str) < 4 {
+	if len(str) < MTILength {
 		return MtiData{}, ErrInvalidMtiLength
 	}
 
-	mtiData := str[0:4]
+	mtiData := str[0:MTILength]
 	return MtiData{mti: mtiData}, nil
 }
 
@@ -197,7 +197,7 @@ func BitsIntArrayToHex(bits []int) (string, error) {
 	return string(hex), nil
 }
 
-func GetShortedKeyFields(source map[int]string) []int {
+func GetSortedKeyFields(source map[int]string) []int {
 	ks := make([]int, len(source))
 
 	index := 0

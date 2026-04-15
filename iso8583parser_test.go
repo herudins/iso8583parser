@@ -109,11 +109,11 @@ func TestMarshalRace(t *testing.T) {
 	var wg sync.WaitGroup
 	for field, data := range source {
 		wg.Add(1)
-		go func(g *sync.WaitGroup) {
-			defer wg.Done()
-
-			isoParser.SetField(field, data)
-		}(&wg)
+		// FIX: pass field and data as parameters to avoid loop-variable closure bug
+		go func(g *sync.WaitGroup, f int, d string) {
+			defer g.Done()
+			isoParser.SetField(f, d)
+		}(&wg, field, data)
 	}
 	wg.Wait()
 
@@ -134,7 +134,8 @@ func setDataIsoTertiary(isoParser *Iso8583Data) {
 }
 
 func TestMarshalTertiary(t *testing.T) {
-	isoParser, err := New("./spec1987_tertiary.yml")
+	// FIX: file was missing from repo — spec1987_tertiary.yml has been added
+	isoParser, err := New("spec1987_tertiary.yml")
 	assert.Nil(t, err, "Error should be nil")
 
 	setDataIsoTertiary(isoParser)
@@ -143,6 +144,25 @@ func TestMarshalTertiary(t *testing.T) {
 
 	require.Equal(t, bitArrayTertiary, isoParser.Bitmap, "Expected bit string to be equal")
 	require.Equal(t, msgisoTertiary, string(isoMsg), "Expected iso message to be equal")
+}
+
+func TestReset(t *testing.T) {
+	isoParser, err := New("spec1987.yml")
+	assert.Nil(t, err, "Error should be nil")
+
+	setDataIso(isoParser)
+	_, err = isoParser.Marshal()
+	assert.Nil(t, err, "Error should be nil")
+
+	isoParser.Reset()
+
+	assert.Equal(t, "", isoParser.Mti.Get(), "MTI should be empty after Reset")
+	assert.Equal(t, bitmapSizePrimary, isoParser.BitmapSize, "BitmapSize should reset to primary")
+	assert.Equal(t, make([]int, bitmapSizeTertiary), isoParser.Bitmap, "Bitmap should be zeroed after Reset")
+
+	allFields, err := isoParser.GetAllFields()
+	assert.Nil(t, allFields, "Elements should be empty after Reset")
+	assert.Equal(t, ErrEmptyDataElements, err)
 }
 
 func TestUnmarshal(t *testing.T) {
@@ -192,7 +212,8 @@ func TestUnmarshalString(t *testing.T) {
 }
 
 func TestUnmarshalTertiary(t *testing.T) {
-	isoParser, err := New("./spec1987_tertiary.yml")
+	// FIX: file was missing from repo — spec1987_tertiary.yml has been added
+	isoParser, err := New("spec1987_tertiary.yml")
 	assert.Nil(t, err, "Error should be nil")
 
 	err = isoParser.Unmarshal([]byte(msgisoTertiary))

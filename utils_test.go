@@ -1,7 +1,6 @@
 package iso8583parser
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -127,7 +126,7 @@ func BenchmarkBitsToHex(b *testing.B) {
 	})
 }
 
-func TestGetShortedKeyFields(t *testing.T) {
+func TestGetSortedKeyFields(t *testing.T) {
 	source := map[int]string{
 		3:   "100700",
 		4:   "1500",
@@ -145,6 +144,7 @@ func TestGetShortedKeyFields(t *testing.T) {
 		13:  "0711",
 	}
 
-	keyShorted := GetShortedKeyFields(source)
-	fmt.Println(keyShorted)
+	keySorted := GetSortedKeyFields(source)
+	expected := []int{3, 4, 5, 6, 7, 8, 11, 12, 13, 47, 48, 100, 103, 104}
+	assert.Equal(t, expected, keySorted, "Expected keys to be sorted")
 }
