@@ -4,6 +4,8 @@ import (
 	"strconv"
 )
 
+const MTILength = 4
+
 type MtiData struct {
 	mti string
 }

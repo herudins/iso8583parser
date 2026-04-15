@@ -8,6 +8,8 @@ import (
 	"sync"
 )
 
+const BitmapLength = 16
+
 type bitmapTypeData int
 
 const (
@@ -50,24 +52,25 @@ func (e *ElementsData) createElement(data string, len int, padType, padValue str
 }
 
 // getElement retrieving element data based on a specific field from the elements map
-func (e *ElementsData) getElement(field int) (data string, eksist bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+func (e *ElementsData) getElement(field int) (data string, exist bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
-	data, eksist = e.elements[field]
+	data, exist = e.elements[field]
 	return
 }
 
 // getElements retrieve all element data from the elements map
 func (e *ElementsData) getElements() map[int]string {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
 	return e.elements
 }
 
 // Iso8583Data object
 type Iso8583Data struct {
+	bitmapMu   sync.RWMutex
 	bitmapType bitmapTypeData
 	Spec       SpecData
 	Mti        MtiData
@@ -111,6 +114,22 @@ func createIsoObject(spec SpecData) (iso *Iso8583Data, err error) {
 	}
 
 	return iso, nil
+}
+
+// Reset clears all message state so the parser can be reused for a new message.
+// Spec is preserved; MTI, Bitmap, and all field elements are cleared.
+func (iso *Iso8583Data) Reset() {
+	iso.bitmapMu.Lock()
+	iso.bitmapType = bitmapTypePrimary
+	iso.Bitmap = make([]int, bitmapSizeTertiary)
+	iso.BitmapSize = bitmapSizePrimary
+	iso.bitmapMu.Unlock()
+
+	iso.Mti = MtiData{}
+
+	iso.Elements.mu.Lock()
+	iso.Elements.elements = make(map[int]string)
+	iso.Elements.mu.Unlock()
 }
 
 func (iso *Iso8583Data) configureNewBitmap() []int {
@@ -165,7 +184,10 @@ func (iso *Iso8583Data) SetField(field int, data string) error {
 		}
 	}
 
+	iso.bitmapMu.Lock()
 	iso.Bitmap[field-1] = 1
+	iso.bitmapMu.Unlock()
+
 	iso.Elements.setElement(field, data)
 	return nil
 }
@@ -198,7 +220,7 @@ func (iso *Iso8583Data) GetAllFields() (allField map[int]string, err error) {
 
 // Retrieves all field key data in all elements sort by key.
 func (iso *Iso8583Data) GetAllFieldKeySorted() []int {
-	return GetShortedKeyFields(iso.Elements.getElements())
+	return GetSortedKeyFields(iso.Elements.getElements())
 }
 
 // Perform ISO8583 data packaging based on fields and data that have been set returning bytes data iso message
@@ -229,7 +251,7 @@ func (iso *Iso8583Data) marshal() ([]byte, error) {
 
 	//Loop all the added elements
 	bufData := make([]byte, 0, 512)
-	shortedKeys := GetShortedKeyFields(iso.Elements.getElements())
+	shortedKeys := GetSortedKeyFields(iso.Elements.getElements())
 	for _, fieldNo := range shortedKeys {
 		indexBit := fieldNo - 1
 
@@ -252,12 +274,6 @@ func (iso *Iso8583Data) marshal() ([]byte, error) {
 		}
 
 		if strings.ToLower(fieldSpec.LenType) == "fixed" {
-			if fieldSpec.ContentType == "n" {
-				data = iso.Elements.createElement(data, maxLen, padTypeLeft, "0")
-			} else {
-				data = iso.Elements.createElement(data, maxLen, padTypeRight, " ")
-			}
-
 			bufData = append(bufData, data...)
 		} else {
 			lengthType, err := getVariableLengthFromString(fieldSpec.LenType)
@@ -270,16 +286,25 @@ func (iso *Iso8583Data) marshal() ([]byte, error) {
 			bufData = append(bufData, data...)
 		}
 
+		iso.bitmapMu.Lock()
 		iso.Bitmap[indexBit] = 1
+		iso.bitmapMu.Unlock()
 	}
 
 	//Calculate new bitmap
+	iso.bitmapMu.Lock()
 	iso.bitmapType = bitmapType
 	iso.Bitmap = iso.configureNewBitmap()
 	iso.BitmapSize = len(iso.Bitmap)
+	iso.bitmapMu.Unlock()
 
 	buf := make([]byte, 0, 512)
 	buf = append(buf, []byte(iso.Mti.Get())...)
+
+	iso.bitmapMu.RLock()
+	bitmapSnapshot := make([]int, len(iso.Bitmap))
+	copy(bitmapSnapshot, iso.Bitmap)
+	iso.bitmapMu.RUnlock()
 
 	bitmapString, err := BitsIntArrayToHex(iso.Bitmap)
 	if err != nil {
@@ -300,7 +325,7 @@ func (iso *Iso8583Data) Unmarshal(bytesIso []byte) error {
 	}
 
 	specs := iso.Spec
-	mti := string(bytesIso[:4])
+	mti := string(bytesIso[:MTILength])
 
 	mtiData, _ := extractMti(mti)
 	if err := mtiData.validate(); err != nil {
@@ -309,7 +334,7 @@ func (iso *Iso8583Data) Unmarshal(bytesIso []byte) error {
 
 	iso.Mti = mtiData
 
-	bitmapHex := bytesIso[4:20]
+	bitmapHex := bytesIso[MTILength : MTILength+BitmapLength]
 	bitmap := make([]byte, 8)
 
 	if _, err := hex.Decode(bitmap, bitmapHex); err != nil {
@@ -335,8 +360,8 @@ func (iso *Iso8583Data) Unmarshal(bytesIso []byte) error {
 		if bitmap[8]&0x80 != 0 {
 			bitmapSize = bitmapSizeTertiary
 			bitmap = append(bitmap, make([]byte, 8)...)
-			if len(bytesIso) < 36 {
-				return ErrDataToShortSecondaryBitmap
+			if len(bytesIso) < 52 {
+				return ErrDataToShortTertiaryBitmap
 			}
 
 			if _, err := hex.Decode(bitmap[16:], bytesIso[36:52]); err != nil {
@@ -357,6 +382,10 @@ func (iso *Iso8583Data) Unmarshal(bytesIso []byte) error {
 
 	pos := 0
 	for i := 2; i <= bitmapSize; i++ {
+		if i == 65 {
+			continue
+		}
+
 		bytePos := (i - 1) / 8
 		bitPos := uint(7 - ((i - 1) % 8))
 
@@ -367,7 +396,7 @@ func (iso *Iso8583Data) Unmarshal(bytesIso []byte) error {
 			}
 
 			var fieldLen int
-			switch spec.LenType {
+			switch strings.ToLower(spec.LenType) {
 			case "fixed":
 				fieldLen = spec.MaxLen
 			case "llvar":
@@ -454,11 +483,11 @@ func (iso *Iso8583Data) UnmarshalString(isoMessage string) error {
 		isoMessage = isoMessage[36:]
 
 		if bitmap[64] == '1' {
-			if len(isoMessage) < 52 {
+			if len(isoMessage) < 16 {
 				return ErrDataToShortTertiaryBitmap
 			}
 
-			thirdHex := isoMessage[36:52]
+			thirdHex := isoMessage[0:16]
 			thirdBitmap, err := HexToBitsString(thirdHex)
 			if err != nil {
 				return err
@@ -467,7 +496,7 @@ func (iso *Iso8583Data) UnmarshalString(isoMessage string) error {
 			iso.bitmapType = bitmapTypeTertiary
 
 			iso.Bitmap[64] = 1
-			isoMessage = isoMessage[52:]
+			isoMessage = isoMessage[16:]
 		}
 	} else {
 		isoMessage = isoMessage[20:]
@@ -476,7 +505,7 @@ func (iso *Iso8583Data) UnmarshalString(isoMessage string) error {
 	pos := 0
 	for i, c := range bitmap {
 		bit := i + 1
-		if c != '1' || i == 0 || i == 1 {
+		if c != '1' || i == 0 || i == 64 {
 			continue
 		}
 
@@ -486,7 +515,7 @@ func (iso *Iso8583Data) UnmarshalString(isoMessage string) error {
 		}
 
 		var fieldLen int
-		switch spec.LenType {
+		switch strings.ToLower(spec.LenType) {
 		case "fixed":
 			fieldLen = spec.MaxLen
 		case "llvar":
