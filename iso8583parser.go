@@ -382,6 +382,10 @@ func (iso *Iso8583Data) Unmarshal(bytesIso []byte) error {
 
 	pos := 0
 	for i := 2; i <= bitmapSize; i++ {
+		if i == 65 {
+			continue
+		}
+
 		bytePos := (i - 1) / 8
 		bitPos := uint(7 - ((i - 1) % 8))
 
@@ -501,7 +505,7 @@ func (iso *Iso8583Data) UnmarshalString(isoMessage string) error {
 	pos := 0
 	for i, c := range bitmap {
 		bit := i + 1
-		if c != '1' || i == 0 {
+		if c != '1' || i == 0 || i == 64 {
 			continue
 		}
 
