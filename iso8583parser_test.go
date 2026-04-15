@@ -109,7 +109,6 @@ func TestMarshalRace(t *testing.T) {
 	var wg sync.WaitGroup
 	for field, data := range source {
 		wg.Add(1)
-		// FIX: pass field and data as parameters to avoid loop-variable closure bug
 		go func(g *sync.WaitGroup, f int, d string) {
 			defer g.Done()
 			isoParser.SetField(f, d)
@@ -134,7 +133,6 @@ func setDataIsoTertiary(isoParser *Iso8583Data) {
 }
 
 func TestMarshalTertiary(t *testing.T) {
-	// FIX: file was missing from repo — spec1987_tertiary.yml has been added
 	isoParser, err := New("spec1987_tertiary.yml")
 	assert.Nil(t, err, "Error should be nil")
 
@@ -212,7 +210,6 @@ func TestUnmarshalString(t *testing.T) {
 }
 
 func TestUnmarshalTertiary(t *testing.T) {
-	// FIX: file was missing from repo — spec1987_tertiary.yml has been added
 	isoParser, err := New("spec1987_tertiary.yml")
 	assert.Nil(t, err, "Error should be nil")
 
